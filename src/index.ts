@@ -1,20 +1,31 @@
 import type { NextFunction, Request, Response, RequestHandler } from "express";
-import { ZodError, ZodSchema } from "zod";
+import { AnyZodObject, z, ZodError, ZodSchema } from "zod";
 
-// Define a type for the schemas
-export type SchemaType = {
-  body?: ZodSchema<any>;
-  params?: ZodSchema<any>;
-  query?: ZodSchema<any>;
-};
+/**
+ * A reusable type for Express request handlers that validates `params`, `body`, and `query`
+ * based on provided Zod schemas, and infers the types of each part in the request object.
+ *
+ * @typeParam TParams - A Zod schema type for `req.params`
+ * @typeParam TBody - A Zod schema type for `req.body`
+ * @typeParam TQuery - A Zod schema type for `req.query`
+ */
+export type RequestSchemaType<
+  TParams extends ZodSchema,
+  TBody extends ZodSchema,
+  TQuery extends ZodSchema
+> = RequestHandler<z.infer<TParams>, any, z.infer<TBody>, z.infer<TQuery>>;
 
 // Middleware function to validate schemas
-export const zodleware = <T extends SchemaType>(schema: T): RequestHandler => {
-  return async (
-    req: Request,
-    res: Response,
-    next: NextFunction
-  ): Promise<void> => {
+export const zodleware = <
+  TParams extends AnyZodObject,
+  TBody extends AnyZodObject,
+  TQuery extends AnyZodObject
+>(schema: {
+  body?: TBody;
+  params?: TParams;
+  query?: TQuery;
+}): RequestSchemaType<TParams, TBody, TQuery> => {
+  return async (req, res, next): Promise<void> => {
     try {
       // Validate body if schema is provided
       if (schema.body) {
@@ -47,3 +58,10 @@ export const zodleware = <T extends SchemaType>(schema: T): RequestHandler => {
     }
   };
 };
+
+/**
+  I have this function i need to add this generic type to it:
+
+  function someFun(obj){}
+ * 
+ */
