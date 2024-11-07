@@ -1,4 +1,4 @@
-import type { NextFunction, Request, Response, RequestHandler } from "express";
+import type { RequestHandler } from "express";
 import { AnyZodObject, z, ZodError, ZodSchema } from "zod";
 
 /**
@@ -58,10 +58,3 @@ export const zodleware = <
     }
   };
 };
-
-/**
-  I have this function i need to add this generic type to it:
-
-  function someFun(obj){}
- * 
- */

@@ -1,153 +1,180 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
 import { z } from "zod";
-import { zodleware } from "./index"; // Adjust the path as necessary
-import type { Request, Response, NextFunction } from "express";
+import { zodleware } from "./index"; // Assuming your middleware is in zodleware.ts
+import { NextFunction, Request, Response } from "express";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { afterEach } from "node:test";
 
-// Define schemas for testing
-const userSchema = z.object({
-  name: z.string(),
-  email: z.string().email(),
-});
-
-const paramsSchema = z.object({
-  userId: z.string().uuid(),
-});
-
-const querySchema = z.object({
-  sortBy: z.enum(["name", "email"]).optional(),
-});
-
-// Mocking request, response, and next
-const createMockRequest = (body = {}, params = {}, query = {}): Request =>
+const mockRequest = <TParams = {}, TBody = {}, TQuery = {}>({
+  params,
+  body,
+  query,
+}: {
+  params?: TParams;
+  body?: TBody;
+  query?: TQuery;
+}) =>
   ({
     body,
     params,
     query,
-    get: vi.fn(),
-    header: vi.fn(),
-    accepts: vi.fn(),
-  } as Partial<Request> as Request);
+  } as unknown as Request<TParams, any, TBody, TQuery>);
 
-const createMockResponse = () => {
-  const res: Partial<Response> = {};
-  res.status = vi.fn().mockReturnValue(res);
-  res.json = vi.fn().mockReturnValue(res);
-  return res as Response;
+const mockResponse = () => {
+  const res = {} as Response;
+  res.status = vi.fn().mockImplementation(() => res); // Chainable function
+  res.json = vi.fn().mockImplementation(() => res);
+  return res;
 };
 
-// Simplified mock next function
-const createMockNext = (): NextFunction => vi.fn();
+let mockNext: NextFunction;
+const res = mockResponse();
 
-describe("zodleware middleware with mocks and spies", () => {
+describe("zodleware", () => {
+  const paramSchema = z.object({
+    id: z.string().uuid(),
+  });
+  const bodySchema = z.object({
+    name: z.string().min(3),
+  });
+  const querySchema = z.object({
+    search: z.string().optional(),
+  });
+
+  beforeEach(() => {
+    mockNext = vi.fn();
+  });
   afterEach(() => {
-    vi.clearAllMocks(); // Clear all mocks after each test
+    vi.clearAllMocks();
   });
-
-  it("should call next() for valid requests", async () => {
-    const req = createMockRequest(
-      { name: "John Doe", email: "john@example.com" },
-      { userId: "123e4567-e89b-12d3-a456-426614174000" },
-      { sortBy: "name" }
-    );
-    const res = createMockResponse();
-    const next = createMockNext();
-
-    const middleware = zodleware({
-      body: userSchema,
-      params: paramsSchema,
-      query: querySchema,
+  it("should pass validation and call next", async () => {
+    const req = mockRequest({
+      params: { id: "123e4567-e89b-12d3-a456-426614174000" },
+      body: { name: "John" },
+      query: { search: "query" },
     });
 
-    await middleware(req, res, next);
+    await zodleware({
+      params: paramSchema,
+      body: bodySchema,
+      query: querySchema,
+    })(req, res, mockNext);
 
-    expect(next).toHaveBeenCalled(); // Verify that next() was called
-    expect(res.status).not.toHaveBeenCalled(); // Verify that res.status was not called
+    expect(mockNext).toHaveBeenCalled();
+    expect(res.status).not.toHaveBeenCalled();
   });
 
-  it("should return a 400 for invalid email format", async () => {
-    const req = createMockRequest(
-      { name: "John Doe", email: "invalid-email" },
-      { userId: "123e4567-e89b-12d3-a456-426614174000" },
-      { sortBy: "name" }
-    );
-    const res = createMockResponse();
-    const next = createMockNext();
-
-    const middleware = zodleware({
-      body: userSchema,
-      params: paramsSchema,
-      query: querySchema,
+  it("should pass validation when optional query field is missing", async () => {
+    const req = mockRequest({
+      params: { id: "123e4567-e89b-12d3-a456-426614174000" },
+      body: { name: "John" },
+      query: {},
     });
 
-    await middleware(req, res, next);
+    await zodleware({
+      params: paramSchema,
+      body: bodySchema,
+      query: querySchema,
+    })(req, res, mockNext);
 
-    expect(next).not.toHaveBeenCalled(); // Verify that next() was not called
-    expect(res.status).toHaveBeenCalledWith(400); // Check status code
-    expect(res.json).toHaveBeenCalled(); // Check if JSON response was called
+    expect(mockNext).toHaveBeenCalled();
+    expect(res.status).not.toHaveBeenCalled();
   });
 
-  it("should return a 400 for missing required fields", async () => {
-    const req = createMockRequest(
-      {},
-      { userId: "123e4567-e89b-12d3-a456-426614174000" }
-    );
-    const res = createMockResponse();
-    const next = createMockNext();
+  it("should fail validation when required `name` field is missing in body", async () => {
+    const req = mockRequest({
+      params: { id: "123e4567-e89b-12d3-a456-426614174000" },
+      body: {},
+      query: { search: "query" },
+    }) as any;
 
-    const middleware = zodleware({
-      body: userSchema,
-      params: paramsSchema,
+    const res = mockResponse();
+    await zodleware({
+      params: paramSchema,
+      body: bodySchema,
       query: querySchema,
-    });
-
-    await middleware(req, res, next);
-
-    expect(next).not.toHaveBeenCalled();
+    })(req, res, mockNext);
+    expect(mockNext).not.toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(400);
-    expect(res.json).toHaveBeenCalled();
+    expect(res.json).toHaveBeenCalledWith({
+      errors: [{ path: "name", message: "Required" }],
+    });
   });
 
-  it("should return a 400 for invalid UUID in params", async () => {
-    const req = createMockRequest(
-      { name: "John Doe", email: "john@example.com" },
-      { userId: "invalid-uuid" },
-      { sortBy: "name" }
-    );
-    const res = createMockResponse();
-    const next = createMockNext();
+  it("should fail validation when `search` is not a string in query", async () => {
+    const req = mockRequest({
+      params: { id: "123e4567-e89b-12d3-a456-426614174000" },
+      body: { name: "John" },
+      query: { search: 123 }, // Invalid type for `search`
+    }) as any;
 
-    const middleware = zodleware({
-      body: userSchema,
-      params: paramsSchema,
+    const res = mockResponse();
+    await zodleware({
+      params: paramSchema,
+      body: bodySchema,
       query: querySchema,
-    });
+    })(req, res, mockNext);
 
-    await middleware(req, res, next);
-
-    expect(next).not.toHaveBeenCalled();
+    expect(mockNext).not.toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(400);
-    expect(res.json).toHaveBeenCalled();
+    expect(res.json).toHaveBeenCalledWith({
+      errors: [{ path: "search", message: "Expected string, received number" }],
+    });
   });
 
-  it("should return a 400 for invalid query parameter", async () => {
-    const req = createMockRequest(
-      { name: "John Doe", email: "john@example.com" },
-      { userId: "123e4567-e89b-12d3-a456-426614174000" },
-      { sortBy: "invalid" } // Invalid query parameter
-    );
-    const res = createMockResponse();
-    const next = createMockNext();
-
-    const middleware = zodleware({
-      body: userSchema,
-      params: paramsSchema,
-      query: querySchema,
+  it("should pass validation with empty `query` when `query` schema is not provided", async () => {
+    const req = mockRequest({
+      params: { id: "123e4567-e89b-12d3-a456-426614174000" },
+      body: { name: "John" },
+      query: {}, // Invalid type for `search`
     });
 
-    await middleware(req, res, next);
+    const res = mockResponse();
 
-    expect(next).not.toHaveBeenCalled();
+    await zodleware({
+      params: paramSchema,
+      body: bodySchema,
+      query: querySchema,
+    })(req, res, mockNext);
+
+    expect(mockNext).toHaveBeenCalled();
+    expect(res.status).not.toHaveBeenCalled();
+  });
+
+  it("should fail validation when required `id` parameter is missing in params", async () => {
+    const req = mockRequest({
+      params: {}, // Missing `id`
+      body: { name: "John" },
+      query: { search: "query" },
+    }) as any;
+
+    const res = mockResponse();
+    await zodleware({
+      params: paramSchema,
+      body: bodySchema,
+      query: querySchema,
+    })(req, res, mockNext);
+
+    expect(mockNext).not.toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(400);
-    expect(res.json).toHaveBeenCalled();
+    expect(res.json).toHaveBeenCalledWith({
+      errors: [{ path: "id", message: "Required" }],
+    });
+  });
+
+  it("should pass validation with empty `body` when `body` schema is not provided", async () => {
+    const req = mockRequest({
+      params: { id: "123e4567-e89b-12d3-a456-426614174000" },
+      body: {},
+      query: { search: "query" },
+    });
+
+    const res = mockResponse();
+    await zodleware({
+      params: paramSchema,
+      query: querySchema,
+    })(req, res, mockNext);
+
+    expect(mockNext).toHaveBeenCalled();
+    expect(res.status).not.toHaveBeenCalled();
   });
 });
