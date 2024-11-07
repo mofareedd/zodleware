@@ -57,7 +57,10 @@ app.post(
     query: querySchema,
   }),
   (req, res) => {
-    res.send("User data is valid and processed");
+ // TypeScript infers req.body as { name: string, age: number }
+  const { name, age } = req.body; // No need to manually type 'req.body'
+
+  res.send(`User ${name}, age ${age}`);
   }
 );
 ```
