@@ -2,7 +2,6 @@ import { z } from "zod";
 import { zodleware } from "./index"; // Assuming your middleware is in zodleware.ts
 import { NextFunction, Request, Response } from "express";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { afterEach } from "node:test";
 
 const mockRequest = <TParams = {}, TBody = {}, TQuery = {}>({
   params,
@@ -42,8 +41,6 @@ describe("zodleware", () => {
 
   beforeEach(() => {
     mockNext = vi.fn();
-  });
-  afterEach(() => {
     vi.clearAllMocks();
   });
   it("should pass validation and call next", async () => {
